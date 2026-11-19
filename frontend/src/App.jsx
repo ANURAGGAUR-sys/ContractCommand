@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react'
 import './App.css'
 
+const API_BASE_URL = 'http://127.0.0.1:8000/api'
+
+const ENDPOINTS = {
+  Contracts: 'contracts',
+  Requisitions: 'requisitions',
+  Vendors: 'vendors',
+  Invoices: 'invoices',
+}
+
 function App() {
   const [active, setActive] = useState('Overview')
   const [records, setRecords] = useState([])
@@ -17,22 +26,16 @@ function App() {
     ['Invoices', '5 awaiting'],
   ]
 
-  const endpoints = {
-    Contracts: 'contracts',
-    Requisitions: 'requisitions',
-    Vendors: 'vendors',
-    Invoices: 'invoices',
-  }
-
   useEffect(() => {
-    const endpoint = endpoints[active]
+    const endpoint = ENDPOINTS[active]
     if (!endpoint) {
-      setRecords([])
+      queueMicrotask(() => setRecords([]))
       return
     }
-    setLoading(true)
     const query = search ? `?search=${encodeURIComponent(search)}` : ''
-    fetch(`http://127.0.0.1:8000/api/${endpoint}/${query}`)
+    const controller = new AbortController()
+    queueMicrotask(() => setLoading(true))
+    fetch(`${API_BASE_URL}/${endpoint}/${query}`, { signal: controller.signal })
       .then(response => {
         if (!response.ok) throw new Error('Unable to load records')
         return response.json()
@@ -40,12 +43,13 @@ function App() {
       .then(setRecords)
       .catch(() => setRecords([]))
       .finally(() => setLoading(false))
+    return () => controller.abort()
   }, [active, search, refresh])
 
   useEffect(() => {
     Promise.all([
-      fetch('http://127.0.0.1:8000/api/vendors/').then(response => response.json()),
-      fetch('http://127.0.0.1:8000/api/contracts/').then(response => response.json()),
+      fetch(`${API_BASE_URL}/vendors/`).then(response => response.json()),
+      fetch(`${API_BASE_URL}/contracts/`).then(response => response.json()),
     ]).then(([vendorRecords, contractRecords]) => {
       setVendors(vendorRecords)
       setContracts(contractRecords)
@@ -59,7 +63,7 @@ function App() {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const payload = Object.fromEntries(form.entries())
-    const endpoint = endpoints[active]
+    const endpoint = ENDPOINTS[active]
     if (!endpoint) return
     const requiredIds = active === 'Contracts'
       ? ['contract_number', 'title', 'value', 'start_date', 'end_date']
@@ -75,7 +79,7 @@ function App() {
       payload.approved = payload.approved === 'true'
       payload.compliance_score = Number(payload.compliance_score)
     }
-    const response = await fetch(`http://127.0.0.1:8000/api/${endpoint}/`, {
+    const response = await fetch(`${API_BASE_URL}/${endpoint}/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -108,7 +112,7 @@ function App() {
         <div className="user"><b>AM</b><span>Alex Morgan<br /><small>Contracts Manager</small></span></div>
       </aside>
       <main>
-        <header><div><p>OPERATIONS</p><h1>{active}</h1></div><button className="primary" onClick={() => setShowForm(true)}>+ New record</button></header>
+        <header><div><p>OPERATIONS</p><h1>{active}</h1></div>{active !== 'Overview' && <button className="primary" onClick={() => setShowForm(true)}>+ New record</button>}</header>
         {active !== 'Overview' && <div className="toolbar"><input value={search} onChange={event => setSearch(event.target.value)} placeholder={`Search ${active.toLowerCase()}...`} /></div>}
         <section className="cards">
           {modules.map(([name, value]) => <article key={name}><span>{name}</span><strong>{value}</strong><small>View module →</small></article>)}

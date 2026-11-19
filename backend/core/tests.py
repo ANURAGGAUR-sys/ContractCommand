@@ -3,7 +3,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Contract, Vendor, Invoice
+from .models import Contract, Requisition, Vendor, Invoice
 
 
 class ContractApiTests(APITestCase):
@@ -65,6 +65,81 @@ class ContractApiTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
+
+    def test_reject_negative_contract_value(self):
+        response = self.client.post(
+            reverse('contract-list'),
+            self.contract_payload(
+                contract_number='CTR-2026-003',
+                value='-100.00',
+            ),
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('value', response.data)
+
+    def test_update_and_delete_contract(self):
+        contract = Contract.objects.create(
+            contract_number='CTR-2026-444',
+            title='Lifecycle update test',
+            value='10000.00',
+            status='DRAFT',
+            start_date='2026-01-01',
+            end_date='2026-12-31',
+            owner=self.user,
+        )
+        detail_url = reverse('contract-detail', args=[contract.id])
+        update = self.client.patch(
+            detail_url,
+            {'status': 'ACTIVE'},
+            format='json',
+        )
+        self.assertEqual(update.status_code, status.HTTP_200_OK)
+        self.assertEqual(update.data['status'], 'ACTIVE')
+        delete = self.client.delete(detail_url)
+        self.assertEqual(delete.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Contract.objects.filter(id=contract.id).exists())
+
+
+class RequisitionApiTests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username='procurement-manager',
+            password='test-password',
+        )
+
+    def test_create_requisition(self):
+        response = self.client.post(
+            reverse('requisition-list'),
+            {
+                'requisition_number': 'REQ-2026-001',
+                'title': 'Replacement protective equipment',
+                'justification': 'Required for current operations.',
+                'estimated_value': '45000.00',
+                'status': 'SUBMITTED',
+                'requested_by': self.user.id,
+                'contract': None,
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Requisition.objects.count(), 1)
+
+    def test_reject_negative_requisition_value(self):
+        response = self.client.post(
+            reverse('requisition-list'),
+            {
+                'requisition_number': 'REQ-2026-002',
+                'title': 'Invalid requisition',
+                'justification': 'Test validation.',
+                'estimated_value': '-1.00',
+                'status': 'DRAFT',
+                'requested_by': self.user.id,
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('estimated_value', response.data)
 
 
 class VendorApiTests(APITestCase):

@@ -17,12 +17,24 @@ class ContractSerializer(serializers.ModelSerializer):
             })
         return attrs
 
+    def validate_value(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Contract value must be greater than zero.')
+        return value
+
 
 class RequisitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Requisition
         fields = '__all__'
         read_only_fields = ('created_at',)
+
+    def validate_estimated_value(self, value):
+        if value <= 0:
+            raise serializers.ValidationError(
+                'Estimated value must be greater than zero.'
+            )
+        return value
 
 
 class VendorSerializer(serializers.ModelSerializer):
