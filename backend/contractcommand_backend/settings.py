@@ -11,21 +11,42 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 from pathlib import Path
+from datetime import timedelta
+import os
+from urllib.parse import parse_qs, unquote, urlparse
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[2] / '.env')
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+PRIVATE_DOCUMENT_ROOT = Path(
+    os.getenv('PRIVATE_DOCUMENT_ROOT', str(BASE_DIR / 'private_documents'))
+).resolve()
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-k8$3^2q4)m81n+(6k&hyx!wvw8reokg3w-_fyo5z$nq4*0x-t5'
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'local-development-only-not-for-production')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', 'true').lower() == 'true'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+    if host.strip()
+]
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://127.0.0.1:5173/')
+
+if not DEBUG and SECRET_KEY in (
+    'local-development-only-not-for-production',
+    'replace-this-with-a-random-secret',
+):
+    raise RuntimeError('DJANGO_SECRET_KEY must be configured when DJANGO_DEBUG is false.')
 
 
 # Application definition
@@ -40,6 +61,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'drf_spectacular',
+    'rest_framework_simplejwt.token_blacklist',
     'core',
 ]
 
@@ -77,12 +99,43 @@ WSGI_APPLICATION = 'contractcommand_backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+DATABASE_URL = os.getenv('DATABASE_URL')
+USE_SQLITE = os.getenv('DJANGO_USE_SQLITE', 'false').lower() == 'true'
+
+if DATABASE_URL and not USE_SQLITE:
+    parsed_database_url = urlparse(DATABASE_URL)
+    if parsed_database_url.scheme not in ('postgres', 'postgresql'):
+        raise RuntimeError('DATABASE_URL must use the postgres or postgresql scheme.')
+    if not parsed_database_url.hostname or not parsed_database_url.path.strip('/'):
+        raise RuntimeError('DATABASE_URL must include a database host and database name.')
+    if not parsed_database_url.username or not parsed_database_url.password:
+        raise RuntimeError('DATABASE_URL must include a database username and password.')
+    database_query = parse_qs(parsed_database_url.query)
+    sslmode = database_query.get('sslmode', ['require'])[0].lower()
+    if sslmode not in ('require', 'verify-ca', 'verify-full'):
+        raise RuntimeError('DATABASE_URL must use SSL (sslmode=require or stronger).')
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': unquote(parsed_database_url.path.lstrip('/')),
+            'USER': unquote(parsed_database_url.username or ''),
+            'PASSWORD': unquote(parsed_database_url.password or ''),
+            'HOST': parsed_database_url.hostname,
+            'PORT': parsed_database_url.port or 5432,
+            'OPTIONS': {
+                'sslmode': sslmode,
+            },
+            'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '0')),
+            'DISABLE_SERVER_SIDE_CURSORS': True,
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
@@ -120,20 +173,36 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+FILE_UPLOAD_PERMISSIONS = 0o600
+FILE_UPLOAD_DIRECTORY_PERMISSIONS = 0o700
 
 CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:5173',
     'http://localhost:5173',
 ]
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = [
+    'http://127.0.0.1:5173',
+    'http://localhost:5173',
+]
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
+        'core.permissions.IsPlatformMember',
     ],
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
 }
 
 

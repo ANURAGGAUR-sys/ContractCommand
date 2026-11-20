@@ -15,11 +15,32 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from django.conf import settings
 from django.urls import include, path
+from django.views.generic import RedirectView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from core.auth_views import (
+    RoleTokenObtainPairView,
+    RoleTokenBlacklistView,
+    RoleTokenRefreshView,
+    current_user,
+)
 
 urlpatterns = [
+    path('', RedirectView.as_view(url=settings.FRONTEND_URL, permanent=False), name='home'),
     path('admin/', admin.site.urls),
+    path('api/auth/token/', RoleTokenObtainPairView.as_view(), name='auth-token'),
+    path(
+        'api/auth/token/refresh/',
+        RoleTokenRefreshView.as_view(),
+        name='auth-token-refresh',
+    ),
+    path(
+        'api/auth/token/blacklist/',
+        RoleTokenBlacklistView.as_view(),
+        name='auth-token-blacklist',
+    ),
+    path('api/auth/me/', current_user, name='auth-me'),
     path('api/', include('core.urls')),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
